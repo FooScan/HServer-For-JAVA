@@ -1,5 +1,6 @@
 package cn.hserver.plugin.gateway.handler.http7;
 
+import cn.hserver.core.server.util.ReleaseUtil;
 import cn.hserver.plugin.gateway.business.BusinessHttp7;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.FullHttpResponse;
@@ -10,7 +11,8 @@ import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class Http7WebSocketBackendHandler extends ChannelInboundHandlerAdapter{
+@ChannelHandler.Sharable
+public class Http7WebSocketBackendHandler extends ChannelInboundHandlerAdapter {
     private static final Logger log = LoggerFactory.getLogger(Http7WebSocketBackendHandler.class);
 
     private final WebSocketClientHandshaker handshakes;
@@ -45,13 +47,13 @@ public class Http7WebSocketBackendHandler extends ChannelInboundHandlerAdapter{
         if (!handshakes.isHandshakeComplete()) {
             try {
                 handshakes.finishHandshake(ch, (FullHttpResponse) msg);
-                log.info("websocket Handshake 完成!");
+                log.debug("websocket Handshake 完成!");
                 handshakeFuture.setSuccess();
             } catch (WebSocketHandshakeException e) {
-                log.info("websocket连接失败!");
+                log.error("websocket连接失败!",e);
                 handshakeFuture.setFailure(e);
             }
-            ReferenceCountUtil.release(msg);
+            ReleaseUtil.release(msg);
             return;
         }
         if (msg instanceof WebSocketFrame) {
@@ -61,18 +63,18 @@ public class Http7WebSocketBackendHandler extends ChannelInboundHandlerAdapter{
                     return;
                 }
                 inboundChannel.writeAndFlush(out);
-            }catch (Throwable e){
-                log.error(e.getMessage(),e);
+            } catch (Throwable e) {
+                log.error(e.getMessage(), e);
             }
         } else {
             ctx.channel().close();
-            ReferenceCountUtil.release(msg);
+            ReleaseUtil.release(msg);
         }
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        Http7FrontendHandler.closeOnFlush(inboundChannel);
+        inboundChannel.close();
     }
 
     @Override
@@ -80,7 +82,7 @@ public class Http7WebSocketBackendHandler extends ChannelInboundHandlerAdapter{
         if (!handshakeFuture.isDone()) {
             handshakeFuture.setFailure(cause);
         }
-        businessHttp7.exceptionCaught(ctx,cause);
-        Http7FrontendHandler.closeOnFlush(ctx.channel());
+        businessHttp7.exceptionCaught(ctx, cause);
+        ctx.channel().close();
     }
 }

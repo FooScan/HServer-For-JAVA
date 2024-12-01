@@ -25,6 +25,10 @@ public interface Ioc {
 
     <T> T getBean(Class<T> type);
 
+    <T> T getSupperBean(Class<T> type);
+
+    <T> List<T> getSupperBeanList(Class<T> type);
+
     Object getBean(String beanName);
 
     <T> T getBean(String beanName, Class<T> type);

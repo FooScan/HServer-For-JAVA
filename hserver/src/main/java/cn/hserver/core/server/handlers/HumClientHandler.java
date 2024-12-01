@@ -17,6 +17,7 @@ import static cn.hserver.core.server.context.ConstConfig.SERVER_NAME;
 
 public class HumClientHandler extends
         SimpleChannelInboundHandler<DatagramPacket> {
+   private final List<HumAdapter> listBean = IocUtil.getListBean(HumAdapter.class);
 
     private static final Logger log = LoggerFactory.getLogger(HumClientHandler.class);
 
@@ -24,7 +25,7 @@ public class HumClientHandler extends
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable
             cause) throws Exception {
-        log.error(ExceptionUtil.getMessage(cause));
+        log.error(cause.getMessage(),cause);
         ctx.close();
     }
 
@@ -35,7 +36,6 @@ public class HumClientHandler extends
             if (SERVER_NAME.equals(message.getType())) {
                 log.debug("hum消息:{}", message.getData().toString());
             } else {
-                List<HumAdapter> listBean = IocUtil.getListBean(HumAdapter.class);
                 if (listBean != null) {
                     for (HumAdapter humAdapter : listBean) {
                         //交换角色，不要搞错了

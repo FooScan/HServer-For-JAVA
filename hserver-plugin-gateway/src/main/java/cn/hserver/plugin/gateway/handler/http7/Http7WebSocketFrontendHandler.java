@@ -1,8 +1,11 @@
 package cn.hserver.plugin.gateway.handler.http7;
 
 import cn.hserver.core.ioc.IocUtil;
+import cn.hserver.core.server.util.EventLoopUtil;
 import cn.hserver.plugin.gateway.business.Business;
 import cn.hserver.plugin.gateway.business.BusinessHttp7;
+import cn.hserver.plugin.gateway.config.GateWayConfig;
+import cn.hserver.plugin.gateway.handler.ReadWriteLimitHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
@@ -25,38 +28,33 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
 
     private Channel outboundChannel;
 
-    private static BusinessHttp7 businessHttp7;
+    private BusinessHttp7 businessHttp7;
 
     private WebSocketServerHandshaker handshake;
 
-    public Http7WebSocketFrontendHandler() {
-        for (Business business : IocUtil.getListBean(Business.class)) {
-            if (business instanceof BusinessHttp7) {
-                businessHttp7 = (BusinessHttp7) business;
-            }
-        }
+
+    public Http7WebSocketFrontendHandler(Business businessHttp7) {
+        this.businessHttp7= (BusinessHttp7) businessHttp7;
     }
 
     static void closeOnFlush(Channel ch) {
         if (ch.isActive()) {
-            businessHttp7.close(ch);
             ch.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
         }
     }
 
     private void read(final ChannelHandlerContext ctx, Object msg) {
         if (msg instanceof HttpRequest || msg instanceof WebSocketFrame) {
-            outboundChannel.writeAndFlush(msg);
+            outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
+                if (!future.isSuccess()) {
+                    future.channel().close();
+                    ReferenceCountUtil.release(msg);
+                }
+            });
         } else {
             closeOnFlush(ctx.channel());
             ReferenceCountUtil.release(msg);
         }
-    }
-
-    @Override
-    public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
-        log.debug("限制操作，让两个通道实现同步读写 开关状态:{}",ctx.channel().isWritable());
-        ctx.channel().config().setAutoRead(ctx.channel().isWritable());
     }
 
     @Override
@@ -66,8 +64,10 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
         } else if (msg instanceof WebSocketFrame) {
             handleWebSocketFrame(ctx, (WebSocketFrame) msg);
         } else {
+            ReferenceCountUtil.retain(msg);
             ctx.fireChannelRead(msg);
         }
+
     }
 
     private void handleWebSocketFrame(ChannelHandlerContext ctx, WebSocketFrame msg) {
@@ -87,29 +87,30 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
     private void writeWebSocket(ChannelHandlerContext ctx, HttpRequest request) throws URISyntaxException {
         try {
 
-            if (outboundChannel == null) {
+            if (outboundChannel == null || !outboundChannel.isActive()) {
                 Bootstrap b = new Bootstrap();
-                b.group(ctx.channel().eventLoop());
+                b.group(GateWayConfig.EVENT_EXECUTORS);
 
                 SocketAddress proxyHost = businessHttp7.getProxyHost(ctx, request, ctx.channel().localAddress());
                 if (!request.headers().contains(HttpHeaderNames.ORIGIN)) {
                     request.headers().add(HttpHeaderNames.ORIGIN, proxyHost.toString() + request.uri());
                 }
+                String subProtocols = request.headers().get("Sec-WebSocket-Protocol");
 
                 WebSocketClientHandshaker webSocketClientHandshaker = WebSocketClientHandshakerFactory.newHandshaker(
-                        new URI(request.uri()), WebSocketVersion.V13, null, true, request.headers());
+                        new URI(request.uri()), WebSocketVersion.V13, subProtocols, true, request.headers());
                 Http7WebSocketBackendHandler handler = new Http7WebSocketBackendHandler(
                         webSocketClientHandshaker,
                         ctx.channel(),
                         businessHttp7
                 );
-                b.channel(NioSocketChannel.class).handler(new ChannelInitializer<Channel>() {
+                b.channel(EventLoopUtil.getEventLoopTypeClassClient()).handler(new ChannelInitializer<Channel>() {
                     @Override
                     protected void initChannel(Channel ch) {
+                        ch.pipeline().addFirst(new ReadWriteLimitHandler(ctx.channel(), ch));
                         ch.pipeline().addLast(new HttpClientCodec(), new HttpObjectAggregator(Integer.MAX_VALUE), WebSocketClientCompressionHandler.INSTANCE, handler);
                     }
                 });
-                final AtomicInteger count = new AtomicInteger(0);
 
                 //数据代理服务选择器
                 ChannelFuture f = b.connect(proxyHost).addListener(new ChannelFutureListener() {
@@ -125,13 +126,11 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
                                 e.printStackTrace();
                                 ReferenceCountUtil.release(request);
                             }
-                            businessHttp7.connectController(ctx, true, count.incrementAndGet(), null);
                         } else {
                             future.channel().close();
+                            businessHttp7.exceptionCaught(ctx, future.cause());
                             ReferenceCountUtil.release(request);
-                            if (businessHttp7.connectController(ctx, false, count.incrementAndGet(), future.cause())) {
-                                b.connect(proxyHost).addListener(this);
-                            }
+                            closeOnFlush(ctx.channel());
                         }
                     }
                 });
@@ -153,7 +152,8 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
                 return;
             }
             req = (HttpRequest) in;
-            WebSocketServerHandshakerFactory wsFactory = new WebSocketServerHandshakerFactory(req.uri(), null, true);
+            String subProtocols = req.headers().get("Sec-WebSocket-Protocol");
+            WebSocketServerHandshakerFactory wsFactory = new WebSocketServerHandshakerFactory(req.uri(), subProtocols, true);
             this.handshake = wsFactory.newHandshaker(req);
             if (this.handshake == null) {
                 WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel());
@@ -162,6 +162,7 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
                 writeWebSocket(ctx, req);
             }
         } else {
+            ReferenceCountUtil.retain(req);
             ctx.fireChannelRead(req);
         }
     }
@@ -169,12 +170,16 @@ public class Http7WebSocketFrontendHandler extends ChannelInboundHandlerAdapter 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (outboundChannel != null) {
+            businessHttp7.close(ctx.channel());
             closeOnFlush(outboundChannel);
+        } else {
+            ctx.fireChannelInactive();
         }
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        businessHttp7.exceptionCaught(ctx, cause);
         closeOnFlush(ctx.channel());
     }
 

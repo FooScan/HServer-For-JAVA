@@ -2,21 +2,19 @@ package cn.hserver.plugin.web.context;
 
 import cn.hserver.plugin.web.util.FreemarkerUtil;
 import io.netty.channel.*;
-import io.netty.handler.codec.http.DefaultHttpResponse;
-import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.cookie.Cookie;
+import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import cn.hserver.plugin.web.interfaces.HttpResponse;
 import cn.hserver.plugin.web.interfaces.ProgressStatus;
-import cn.hserver.core.server.util.ExceptionUtil;
 
 import java.io.*;
+import java.net.URLEncoder;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.RandomAccess;
 
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
@@ -40,7 +38,7 @@ public class Response implements HttpResponse {
 
     private HttpResponseStatus httpResponseStatus;
 
-    private boolean isProxy = false;
+    private boolean useCtx = false;
 
 
     @Override
@@ -79,38 +77,77 @@ public class Response implements HttpResponse {
         this.fileName = file.getName();
     }
 
+    @Override
+    public void setDownloadBigFile(File file) throws Exception {
+        this.setDownloadBigFile(file,null);
+    }
+
     /**
      * 下载大文件
      *
      * @param file
      */
     @Override
-    public void setDownloadBigFile(File file, ProgressStatus progressStatus, ChannelHandlerContext ctx) throws Exception {
-        isProxy(true);
+    public void setDownloadBigFile(File file, ProgressStatus progressStatus) throws Exception {
+        useCtx = true;
         try {
-            final RandomAccessFile raf = new RandomAccessFile(file, "r");
+            RandomAccessFile raf = new RandomAccessFile(file, "r");
+            Webkit webKit = HServerContextHolder.getWebKit();
             long fileLength = raf.length();
-            DefaultHttpResponse response = new DefaultHttpResponse(HTTP_1_1, HttpResponseStatus.OK);
-            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, fileLength);
-            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/octet-stream");
-            response.headers().add(HttpHeaderNames.CONTENT_DISPOSITION, String.format("attachment; filename=\"%s\"", file.getName()));
-            ctx.write(response);
-            ChannelFuture sendFileFuture = ctx.write(new DefaultFileRegion(raf.getChannel(), 0, fileLength), ctx.newProgressivePromise());
+            HttpResponseStatus status = HttpResponseStatus.OK;
+            DefaultHttpHeaders headers = new DefaultHttpHeaders();
+            headers.set(HttpHeaderNames.ACCEPT_RANGES, HttpHeaderValues.BYTES);
+            headers.set(HttpHeaderNames.CONTENT_LENGTH, fileLength);
+            headers.set(HttpHeaderNames.CONTENT_TYPE, MimeType.getFileType(file.getName()));
+            headers.add(HttpHeaderNames.CONTENT_DISPOSITION, String.format("inline; filename=\"%s\"", URLEncoder.encode(file.getName(), "UTF-8")));
+            String range = webKit.httpRequest.getHeaders().get(HttpHeaderNames.RANGE.toString());
+            long offset, length = raf.length();
+            if (range != null && range.trim().length() != 0) {
+                range = range.substring(6);
+                String[] split = range.split("-");
+                try {
+                    offset = Long.parseLong(split[0]);
+                    if (split.length > 1 && split[1] != null && split[1].trim().length() != 0) {
+                        long end = Long.parseLong(split[1]);
+                        if (end <= length && offset >= end) {
+                            long endIndex = end - offset;
+                            headers.set(HttpHeaderNames.CONTENT_RANGE, "bytes " + offset + "-" + endIndex + "/" + length);
+                            length = endIndex - offset;
+                        }
+                    } else {
+                        headers.set(HttpHeaderNames.CONTENT_RANGE, "bytes " + offset + "-" + (length + offset - 1) + "/" + (offset + length));
+                        length = length - offset;
+                    }
+                    headers.set(HttpHeaderNames.CONTENT_LENGTH, length);// 重写响应长度
+                    status = HttpResponseStatus.PARTIAL_CONTENT;
+                } catch (Exception e) {
+                    log.warn("断点续传解析错误", e);
+                }
+            }
+            DefaultHttpResponse response = new DefaultHttpResponse(HTTP_1_1, status);
+            response.headers().set(headers);
+            webKit.httpRequest.getCtx().write(response);
+            ChannelFuture sendFileFuture = webKit.httpRequest.getCtx().write(new DefaultFileRegion(raf.getChannel(), 0, fileLength), webKit.httpRequest.getCtx().newProgressivePromise());
             sendFileFuture.addListener(new ChannelProgressiveFutureListener() {
                 @Override
                 public void operationComplete(ChannelProgressiveFuture future)
                         throws Exception {
-                    log.info("file {} transfer complete.", file.getName());
-                    progressStatus.operationComplete(file.getAbsolutePath());
+                    log.debug("文件 {} 下载完成.", file.getName());
                     raf.close();
+                    if (progressStatus!=null) {
+                        progressStatus.operationComplete(file.getAbsolutePath());
+                    }
                 }
+
                 @Override
                 public void operationProgressed(ChannelProgressiveFuture future,
                                                 long progress, long total) throws Exception {
-                    progressStatus.downloading(progress, total);
+                    if (progressStatus!=null) {
+                        progressStatus.downloading(progress, total);
+                    }
                 }
             });
-            ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+            webKit.httpRequest.getCtx().writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
         } catch (FileNotFoundException e) {
             throw new Exception(String.format("文件 %s 找不到", file.getPath()));
         } catch (IOException e) {
@@ -147,7 +184,7 @@ public class Response implements HttpResponse {
                 headers.put("content-type", "application/json;charset=UTF-8");
             }
         } catch (Exception e) {
-            log.error(ExceptionUtil.getMessage(e));
+            log.error(e.getMessage(),e);
         }
     }
 
@@ -180,8 +217,8 @@ public class Response implements HttpResponse {
     }
 
     @Override
-    public void isProxy(boolean p) {
-        this.isProxy = p;
+    public void setUseCtx(boolean p) {
+        this.useCtx = p;
     }
 
     @Override
@@ -189,7 +226,7 @@ public class Response implements HttpResponse {
         try {
             this.result = FreemarkerUtil.getTemplate(htmlPath, obj);
         } catch (Exception e) {
-            log.error(ExceptionUtil.getMessage(e));
+            log.error(e.getMessage(),e);
         }
         if (!headers.containsKey("content-type")) {
             headers.put("content-type", "text/html;charset=UTF-8");
@@ -208,28 +245,8 @@ public class Response implements HttpResponse {
      */
     @Override
     public void addCookie(Cookie cookie) {
-        Iterator<String> iterator = cookie.keySet().iterator();
-        StringBuilder cookieStr = new StringBuilder();
-        while (iterator.hasNext()) {
-            String k = iterator.next();
-            String v = cookie.get(k);
-            try {
-                cookieStr.append(java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8") + ";");
-            } catch (UnsupportedEncodingException e) {
-                log.error(ExceptionUtil.getMessage(e));
-            }
-        }
-        if (cookie.getMaxAge() != null) {
-            cookieStr.append("Max-Age=");
-            cookieStr.append(cookie.getMaxAge());
-            cookieStr.append(";");
-        }
-        if (cookie.getPath() != null) {
-            cookieStr.append("path=");
-            cookieStr.append(cookie.getPath());
-            cookieStr.append(";");
-        }
-        headers.put("Set-Cookie", cookieStr.toString());
+        String encode = ServerCookieEncoder.LAX.encode(cookie);
+        headers.put(String.valueOf(HttpHeaderNames.SET_COOKIE), encode);
     }
 
     @Override
@@ -273,8 +290,8 @@ public class Response implements HttpResponse {
         return httpResponseStatus;
     }
 
-    public boolean isProxy() {
-        return isProxy;
+    public boolean isUseCtx() {
+        return useCtx;
     }
 
 }

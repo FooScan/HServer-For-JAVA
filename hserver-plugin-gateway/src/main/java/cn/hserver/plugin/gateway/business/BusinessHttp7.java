@@ -1,14 +1,26 @@
 package cn.hserver.plugin.gateway.business;
 
 
-import cn.hserver.core.ioc.annotation.Bean;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 
 import java.net.SocketAddress;
 
-@Bean
-public class BusinessHttp7 implements Business<Object, Object>{
+public class BusinessHttp7 implements Business<Object, Object> {
+
+
+    /**
+     * 忽略的url进行消息聚合
+     * @return
+     */
+    public String requestIgnoreUrls() {
+        return null;
+    }
+
+    public String responseIgnoreUrls() {
+        return null;
+    }
+
 
     @Override
     public Object in(ChannelHandlerContext ctx, Object obj) {
@@ -16,8 +28,8 @@ public class BusinessHttp7 implements Business<Object, Object>{
     }
 
     @Override
-    public SocketAddress getProxyHost(ChannelHandlerContext ctx,Object fullHttpRequest, SocketAddress sourceSocketAddress) {
-        return null;
+    public SocketAddress getProxyHost(ChannelHandlerContext ctx, Object fullHttpRequest, SocketAddress sourceSocketAddress) {
+        throw new RuntimeException("请配置需要代理的服务器");
     }
 
     @Override
@@ -28,11 +40,6 @@ public class BusinessHttp7 implements Business<Object, Object>{
     @Override
     public void close(Channel channel) {
 
-    }
-
-    @Override
-    public boolean connectController(ChannelHandlerContext ctx,boolean connectResult,int connectNum, Throwable error) {
-        return false;
     }
 
     @Override

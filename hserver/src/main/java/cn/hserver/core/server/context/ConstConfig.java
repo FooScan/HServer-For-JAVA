@@ -26,11 +26,6 @@ public class ConstConfig {
 
 
     /**
-     * webServer  bossThreadCount
-     */
-    public static Integer bossPool = 0;
-
-    /**
      * webServer workerGroupThreadCount
      */
     public static Integer workerPool = 0;
@@ -64,7 +59,7 @@ public class ConstConfig {
      */
     public final static String SERVER_NAME = "HServer";
 
-    public final static String VERSION = "3.1.1";
+    public final static String VERSION = "3.6.M3";
 
     /**
      * 用户自定义的服务名
@@ -84,7 +79,7 @@ public class ConstConfig {
     /**
      * 可以epoll时是否使用
      */
-    public static Boolean EPOLL = true;
+    public static IoMultiplexer IO_MOD = IoMultiplexer.DEFAULT;
 
     /**
      * 跟踪扩展包
@@ -99,7 +94,7 @@ public class ConstConfig {
     /**
      * 前置以协议大小
      */
-    public static Integer PRE_PROTOCOL_MAX_SIZE = 1024;
+    public static Integer PRE_PROTOCOL_MAX_SIZE = 4096;
 
 
     /**

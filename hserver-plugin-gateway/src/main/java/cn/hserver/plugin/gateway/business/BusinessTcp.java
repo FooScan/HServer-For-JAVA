@@ -7,7 +7,6 @@ import io.netty.channel.ChannelHandlerContext;
 
 import java.net.SocketAddress;
 
-@Bean
 public class BusinessTcp implements Business<Object,Object>{
 
     @Override
@@ -17,7 +16,7 @@ public class BusinessTcp implements Business<Object,Object>{
 
     @Override
     public SocketAddress getProxyHost(ChannelHandlerContext ctx,Object o, SocketAddress sourceSocketAddress) {
-        return null;
+        throw new RuntimeException("请配置需要代理的服务器");
     }
 
     @Override
@@ -30,10 +29,6 @@ public class BusinessTcp implements Business<Object,Object>{
 
     }
 
-    @Override
-    public boolean connectController(ChannelHandlerContext ctx,boolean connectResult,int connectNum, Throwable error) {
-        return false;
-    }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {

@@ -2,16 +2,22 @@ package cn.hserver.plugin.web.handlers;
 
 import cn.hserver.core.server.context.ConstConfig;
 import cn.hserver.plugin.web.context.*;
+import cn.hserver.plugin.web.handlers.check.*;
+import cn.hserver.plugin.web.handlers.check.StaticFile;
+import cn.hserver.plugin.web.interfaces.HttpRequest;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
 import io.netty.handler.codec.http.multipart.*;
+import io.netty.util.CharsetUtil;
+import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.*;
-import cn.hserver.core.server.util.ByteBufUtil;
 import cn.hserver.core.server.util.HServerIpUtil;
 import cn.hserver.plugin.web.util.RequestIdGen;
 
@@ -21,27 +27,38 @@ import java.util.Map;
 /**
  * @author hxm
  */
+@ChannelHandler.Sharable
 public class HServerContentHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
+
+    private static final HServerContentHandler instance = new HServerContentHandler();
+
+    private HServerContentHandler() {
+    }
+
+    public static HServerContentHandler getInstance() {
+        return instance;
+    }
+
 
     private static final Logger log = LoggerFactory.getLogger(HServerContentHandler.class);
 
-    private final static DefaultHttpDataFactory FACTORY = new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE);
 
-    public Channel outboundChannel;
+    private final DispatcherHandler limit = new Limit();
+    private final DispatcherHandler staticFile = new StaticFile();
+    private final DispatcherHandler filter = new Filter();
+    private final DispatcherHandler permission = new Permission();
+    private final DispatcherHandler findController = new FindController();
+
 
     @Override
-    protected void channelRead0(ChannelHandlerContext channelHandlerContext, FullHttpRequest req) throws Exception {
+    protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest req) throws Exception {
         HServerContext hServerContext = new HServerContext();
         Request request = new Request();
         hServerContext.setRequest(request);
-        request.setHandler(this);
         String id = RequestIdGen.getId();
         request.setRequestId(id);
-        request.setIp(HServerIpUtil.getClientIp(channelHandlerContext));
-        request.setPort(HServerIpUtil.getClientPort(channelHandlerContext));
-        request.setCtx(channelHandlerContext);
+        request.setCtx(ctx);
         request.setNettyUri(req.uri());
-        request.setNettyRequest(new DefaultFullHttpRequest(req.protocolVersion(), req.method(), req.uri(), Unpooled.copiedBuffer(req.content()), req.headers(), req.trailingHeaders()));
         handlerUrl(request, req);
         handlerBody(request, req);
         //获取URi，設置真實的URI
@@ -64,15 +81,33 @@ public class HServerContentHandler extends SimpleChannelInboundHandler<FullHttpR
         webkit.httpResponse = hServerContext.getResponse();
         webkit.httpResponse.setHeader(WebConstConfig.REQUEST_ID, id);
         webkit.httpResponse.setHeader(WebConstConfig.SERVER_NAME, ConstConfig.VERSION);
-        webkit.httpResponse.setHeader("Server",WebConstConfig.SERVER_NAME);
+        webkit.httpResponse.setHeader("Server", WebConstConfig.SERVER_NAME);
         hServerContext.setWebkit(webkit);
         HServerContextHolder.setWebKit(webkit);
-        channelHandlerContext.fireChannelRead(hServerContext);
+        try {
+            limit.dispatcher(hServerContext);
+            staticFile.dispatcher(hServerContext);
+            filter.dispatcher(hServerContext);
+            permission.dispatcher(hServerContext);
+            findController.dispatcher(hServerContext);
+            FullHttpResponse fullHttpResponse = DispatcherHandler.buildResponse(hServerContext);
+            DispatcherHandler.writeResponse(ctx, hServerContext, fullHttpResponse);
+        } catch (Throwable e) {
+            FullHttpResponse fullHttpResponse = DispatcherHandler.handleException(e);
+            DispatcherHandler.writeResponse(ctx, hServerContext, fullHttpResponse);
+        }finally {
+            HServerContextHolder.remove();
+        }
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         BuildResponse.writeException(ctx, cause);
+    }
+
+    @Override
+    public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+        ctx.flush();
     }
 
     private void handlerUrl(Request request, FullHttpRequest req) {
@@ -92,15 +127,18 @@ public class HServerContentHandler extends SimpleChannelInboundHandler<FullHttpR
     }
 
     private void handlerBody(Request request, FullHttpRequest req) {
-        ByteBuf body = req.content().duplicate();
-        request.setBody(ByteBufUtil.byteBufToBytes(body));
         try {
-            HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(FACTORY, req);
+            ByteBuf body = req.content().duplicate();
+            HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, -1, -1);
             List<InterfaceHttpData> bodyHttpDates = decoder.getBodyHttpDatas();
+            InterfaceHttpData interfaceHttpData = bodyHttpDates.stream().filter(k -> k.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload).findFirst().orElse(null);
+            if (interfaceHttpData == null) {
+                request.setBody(ByteBufUtil.getBytes(body));
+            }
             bodyHttpDates.forEach(request::writeHttpData);
             decoder.destroy();
         } catch (Exception e) {
-            log.warn(e.getMessage());
+            log.warn(e.getMessage(), e);
         }
     }
 

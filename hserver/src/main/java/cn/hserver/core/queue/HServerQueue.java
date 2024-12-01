@@ -9,8 +9,6 @@ import java.util.List;
  * @author hxm
  */
 public class HServerQueue {
-
-
     /**
      * 动态添加Queue
      *
@@ -20,15 +18,12 @@ public class HServerQueue {
     public static void addQueueListener(String queueName, Class classz) {
         QueueDispatcher.addQueueListener(queueName, classz);
     }
-
-
     /**
      * 获取所有队列名
      */
     public static List<String> getAllQueueName() {
        return QueueDispatcher.getAllQueueName();
     }
-
     /**
      * 删除Queue
      *
@@ -38,8 +33,25 @@ public class HServerQueue {
         QueueDispatcher.removeQueue(queueName,true);
     }
 
+
     public static void removeQueue(String queueName,boolean trueDeleteData) {
         QueueDispatcher.removeQueue(queueName,trueDeleteData);
+    }
+
+    /**
+     * 停止队列得数据处理
+     * @param queueName
+     */
+    public static void stopHandler(String queueName) {
+        QueueDispatcher.stopHandler(queueName);
+    }
+
+    /**
+     * 启用队列得数据处理
+     * @param queueName
+     */
+    public static void restartHandler(String queueName) {
+        QueueDispatcher.restartHandler(queueName);
     }
 
     /**
@@ -51,19 +63,6 @@ public class HServerQueue {
     public static boolean sendQueue(String queueName, Object... args) {
         return QueueDispatcher.dispatcherSerializationQueue(queueName, args);
     }
-
-
-    /**
-     * 发送队列进行持久化
-     *
-     * @param queueName
-     * @param args
-     */
-    @Deprecated
-    public static boolean sendPersistQueue(String queueName, Object... args) {
-        return QueueDispatcher.dispatcherSerializationQueue(queueName, args);
-    }
-
 
     /**
      * 队列信息

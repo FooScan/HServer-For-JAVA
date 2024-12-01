@@ -2,18 +2,18 @@ package cn.hserver.plugin.web.handlers;
 
 
 import cn.hserver.core.server.context.ConstConfig;
+import cn.hserver.core.server.util.JarInputStreamUtil;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import cn.hserver.plugin.web.context.StaticFile;
 import cn.hserver.plugin.web.context.HServerContext;
 import cn.hserver.plugin.web.exception.BusinessException;
 
 import java.io.*;
-import java.net.JarURLConnection;
 import java.net.URL;
-import java.util.Enumeration;
-import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
+import java.util.jar.JarInputStream;
 
 /**
  * 静态文件的处理，包括文件缓存效果等
@@ -29,7 +29,7 @@ public class StaticHandler {
     /**
      * 此处的静态文件缓存是非常有必要的，直接拉低了整体QPS.
      */
-    private final static CopyOnWriteArraySet<String> STATIC_FILE_URI = new CopyOnWriteArraySet<>();
+    private final static Set<String> STATIC_FILE_URI = new HashSet<>();
 
     static {
         /**
@@ -59,6 +59,12 @@ public class StaticHandler {
         }
         return null;
     }
+
+
+    public boolean hasEmptyStaticFile() {
+        return STATIC_FILE_URI.isEmpty();
+    }
+
 
     /**
      * 构建一个静态文件对象
@@ -115,18 +121,22 @@ public class StaticHandler {
 
     public static void onlineFile(String path) {
         try {
-            JarURLConnection jarURLConnection = (JarURLConnection) new URL(path).openConnection();
-            JarFile jarFile = jarURLConnection.getJarFile();
-            Enumeration<JarEntry> entry = jarFile.entries();
-            while (entry.hasMoreElements()) {
-                JarEntry jar = entry.nextElement();
-                String name = jar.getName();
-                if (name.contains(BASE) && !name.endsWith("/")) {
-                    STATIC_FILE_URI.add(name.substring(BASE.length()));
+            InputStream resourceAsStream = Thread.currentThread().getContextClassLoader().getResourceAsStream(path);
+            if (resourceAsStream != null) {
+                try (JarInputStream jarInputStream = new JarInputStream(JarInputStreamUtil.decrypt(resourceAsStream))) {
+                    JarEntry jarEntry;
+                    while ((jarEntry = jarInputStream.getNextJarEntry()) != null) {
+                        String name = jarEntry.getName();
+                        if (name.contains(BASE) && !name.endsWith("/")) {
+                            STATIC_FILE_URI.add(name.substring(BASE.length()));
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
-            jarFile.close();
-        } catch (Exception ignored) {
+        } catch (Exception var6) {
+            var6.printStackTrace();
         }
     }
 }

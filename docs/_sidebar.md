@@ -31,7 +31,6 @@
 
 * 二、Rpc插件
     * [Rpc](zh-cn/plugin/rpc/index.md)
-
 * 三、Mybatis插件
     * [Mybatis](zh-cn/plugin/mybatis.md)
 * 四、Mqtt插件
@@ -46,3 +45,9 @@
     * [Redis](zh-cn/plugin/redis.md)
 * 九、Mongodb
     * [Mongodb](zh-cn/plugin/mongodb.md)
+* 十、Mybatis-Flex
+  * [mybatis-flex](zh-cn/plugin/mybatis-flex.md)
+* 十一、Sa-Token
+  * [satoken](zh-cn/plugin/satoken.md)
+* 十二、Forest远程调用
+  * [forest](zh-cn/plugin/forest.md) 

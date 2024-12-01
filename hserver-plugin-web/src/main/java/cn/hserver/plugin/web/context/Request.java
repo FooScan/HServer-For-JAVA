@@ -1,5 +1,6 @@
 package cn.hserver.plugin.web.context;
 
+import cn.hserver.core.server.util.HServerIpUtil;
 import cn.hserver.plugin.web.handlers.HServerContentHandler;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -8,6 +9,8 @@ import cn.hserver.plugin.web.interfaces.HttpRequest;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.cookie.Cookie;
+import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.multipart.*;
 import io.netty.util.CharsetUtil;
 import cn.hserver.plugin.web.util.IpUtil;
@@ -26,24 +29,38 @@ public class Request implements HttpRequest {
     private String uri;
     private String nettyUri;
     private HttpMethod requestType;
-    private String ip;
-    private int port;
     private ChannelHandlerContext ctx;
     private Map<String, List<String>> requestParams = new ConcurrentHashMap<>();
     private Map<String, List<String>> urlParams = new ConcurrentHashMap<>();
     private HeadMap headers;
-    private FullHttpRequest nettyRequest;
-    private final long createTime = System.currentTimeMillis();
-    private HServerContentHandler handler;
-
-    /**
-     * 文件处理
-     */
-    private static final ByteBuf EMPTY_BUF = Unpooled.copiedBuffer("", CharsetUtil.UTF_8);
+    private final long createTime = System.nanoTime();
     private byte[] body = null;
-    private Map<String, PartFile> multipartFile = new HashMap<>(8);
+    private Map<String, PartFile> multipartFile;
     private static final String TEMP_PATH = System.getProperty("java.io.tmpdir") + File.separator;
+    private Map<String, Object> attributes;
 
+    @Override
+    public void setAttribute(String key, Object value) {
+        if (attributes == null) {
+            attributes = new ConcurrentHashMap<>();
+        }
+        attributes.put(key, value);
+    }
+
+    @Override
+    public Object getAttribute(String key) {
+        if (attributes == null) {
+            return null;
+        }
+        return attributes.get(key);
+    }
+
+    @Override
+    public void removeAttribute(String key) {
+        if (attributes != null){
+            attributes.remove(key);
+        }
+    }
 
     @Override
     public String getRequestId() {
@@ -61,6 +78,15 @@ public class Request implements HttpRequest {
     }
 
     @Override
+    public Set<Cookie> getCookies() {
+        String cookieString = headers.get("Cookie");
+        if (cookieString != null) {
+            return ServerCookieDecoder.LAX.decode(cookieString);
+        }
+        return null;
+    }
+
+    @Override
     public String query(String name) {
         return requestParams.get(name) == null ? null : requestParams.get(name).get(0);
     }
@@ -72,17 +98,20 @@ public class Request implements HttpRequest {
 
     @Override
     public PartFile queryFile(String name) {
+        if (multipartFile == null) {
+            return null;
+        }
         return multipartFile.get(name);
     }
 
     @Override
     public String getIp() {
-        return ip;
+        return HServerIpUtil.getClientIp(ctx);
     }
 
     @Override
     public int getPort() {
-        return port;
+        return HServerIpUtil.getClientPort(ctx);
     }
 
     @Override
@@ -95,10 +124,6 @@ public class Request implements HttpRequest {
         return nettyUri;
     }
 
-    @Override
-    public FullHttpRequest getNettyRequest() {
-        return this.nettyRequest;
-    }
 
     @Override
     public String getHeader(String headName) {
@@ -192,6 +217,9 @@ public class Request implements HttpRequest {
             partFile.setFilePath(file.getPath());
             partFile.setContentType(fileUpload.getContentType());
             partFile.setLength(fileUpload.length());
+            if (multipartFile == null) {
+                multipartFile = new ConcurrentHashMap<>();
+            }
             multipartFile.put(partFile.getFormName(), partFile);
         }
     }
@@ -216,14 +244,6 @@ public class Request implements HttpRequest {
 
     public void setRequestType(HttpMethod requestType) {
         this.requestType = requestType;
-    }
-
-    public void setIp(String ip) {
-        this.ip = ip;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
     }
 
     public void setCtx(ChannelHandlerContext ctx) {
@@ -257,22 +277,12 @@ public class Request implements HttpRequest {
         this.headers = headers;
     }
 
-    public void setNettyRequest(FullHttpRequest nettyRequest) {
-        this.nettyRequest = nettyRequest;
-    }
-
-    public static ByteBuf getEmptyBuf() {
-        return EMPTY_BUF;
-    }
 
     @Override
     public Map<String, PartFile> getMultipartFile() {
         return multipartFile;
     }
 
-    public void setMultipartFile(Map<String, PartFile> multipartFile) {
-        this.multipartFile = multipartFile;
-    }
 
     public static String getTempPath() {
         return TEMP_PATH;
@@ -282,17 +292,4 @@ public class Request implements HttpRequest {
         this.requestId = requestId;
     }
 
-    public void setHandler(HServerContentHandler handler) {
-        this.handler = handler;
-    }
-
-    @Override
-    public Channel getOutboundChannel() {
-        return handler.outboundChannel;
-    }
-
-    @Override
-    public void setOutboundChannel(Channel channel) {
-        handler.outboundChannel = channel;
-    }
 }

@@ -1,13 +1,16 @@
 package cn.hserver;
 
+import cn.hserver.core.interfaces.LogAdapter;
+import cn.hserver.core.ioc.ref.InitIoc;
+import cn.hserver.core.log.HServerLogAsyncAppender;
 import io.netty.channel.ChannelOption;
+import io.netty.util.ResourceLeakDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import cn.hserver.core.plugs.PlugsManager;
 import cn.hserver.core.queue.QueueDispatcher;
 import cn.hserver.core.interfaces.InitRunner;
 import cn.hserver.core.ioc.IocUtil;
-import cn.hserver.core.ioc.ref.InitBean;
 import cn.hserver.core.ioc.ref.MemoryInitClass;
 import cn.hserver.core.log.HServerLogConfig;
 import cn.hserver.core.properties.PropertiesInit;
@@ -29,8 +32,10 @@ import static cn.hserver.core.server.context.ConstConfig.TRACK_EXT_PACKAGES;
 public class HServerApplication {
     private static final Logger log = LoggerFactory.getLogger(HServerApplication.class);
     private static final Map<ChannelOption<Object>, Object> TCP_OPTIONS = new HashMap<>();
+    private static final Map<ChannelOption<Object>, Object> TCP_CHILD_OPTIONS = new HashMap<>();
 
     public static Class<?> mainClass;
+    public static ResourceLeakDetector.Level level= ResourceLeakDetector.Level.DISABLED;
 
     /**
      * 添加一些netty options选项
@@ -39,6 +44,10 @@ public class HServerApplication {
      */
     public static <T> void addTcpOptions(ChannelOption<T> option, T value) {
         TCP_OPTIONS.put((ChannelOption)option, value);
+    }
+
+    public static <T> void addTcpChildOptions(ChannelOption<T> option, T value) {
+        TCP_CHILD_OPTIONS.put((ChannelOption)option, value);
     }
     //单端口
     public static void run(Class<?> mainClass, Integer port, String... args) {
@@ -65,15 +74,16 @@ public class HServerApplication {
      */
     public static void runTest(String testPackageName, Class<?> clazz) {
         iocInit(clazz, null, testPackageName);
-        initTestOk();
+        initOk(null);
     }
 
 
     private static void startServer(String[] args) {
         try {
-            new HServer(ConstConfig.PORTS, args).run(TCP_OPTIONS);
+            initOk(args);
+            new HServer(ConstConfig.PORTS).run(TCP_OPTIONS,TCP_CHILD_OPTIONS);
         } catch (Exception e) {
-            log.error(ExceptionUtil.getMessage(e));
+            log.error(e.getMessage(),e);
         }
     }
 
@@ -84,15 +94,17 @@ public class HServerApplication {
 
     private synchronized static void iocInit(Class<?> clazz, Class<?> mainClass, String... packages) {
         HServerApplication.mainClass = mainClass;
+        PropertiesInit.configFile();
         //初始化哈日志配置
         try {
             EnvironmentUtil.init(clazz);
         } catch (Exception e) {
-            log.error(ExceptionUtil.getMessage(e));
+            log.error(e.getMessage(),e);
             return;
         }
         PlugsManager.getPlugin().startApp();
         HServerLogConfig.init();
+        ResourceLeakDetector.setLevel(level);
         log.info("检查包文件");
         Set<String> scanPackage;
         if (mainClass == null) {
@@ -106,9 +118,6 @@ public class HServerApplication {
         }
         scanPackage.addAll(PlugsManager.getPlugin().getPlugPackages());
         scanPackage.add(HServerApplication.class.getPackage().getName());
-        log.info("初始化配置文件");
-        PropertiesInit.configFile();
-        log.info("初始化配置完成");
         log.info("Class动态修改开始...");
         //没开启追踪的不追踪
         if (ConstConfig.TRACK) {
@@ -118,7 +127,7 @@ public class HServerApplication {
                 MemoryInitClass.init(s);
             }
             //扩展的
-            if (TRACK_EXT_PACKAGES != null && TRACK_EXT_PACKAGES.length > 0) {
+            if (TRACK_EXT_PACKAGES != null) {
                 for (String extPackage : TRACK_EXT_PACKAGES) {
                     MemoryInitClass.init(extPackage);
                 }
@@ -129,23 +138,25 @@ public class HServerApplication {
         log.info("HServer 启动中....");
         log.info("Package 扫描中");
         PlugsManager.getPlugin().startIocInit();
-        InitBean.init(PackageUtil.deduplication(scanPackage));
+        InitIoc.init(PackageUtil.deduplication(scanPackage));
         PlugsManager.getPlugin().iocInitEnd();
         log.info("IOC 装配中");
         PlugsManager.getPlugin().startInjection();
-        InitBean.injection();
+        InitIoc.injection();
         PlugsManager.getPlugin().injectionEnd();
         log.info("IOC 全部装配完成");
     }
 
-    private static void initTestOk() {
+
+    private static void initOk(String[] args) {
+        HServerLogAsyncAppender.setHasLog(IocUtil.getListBean(LogAdapter.class));
         //初始化完成可以放开任务了
         TaskManager.IS_OK = true;
         QueueDispatcher.startTaskThread();
         List<InitRunner> listBean = IocUtil.getListBean(InitRunner.class);
         if (listBean != null) {
             for (InitRunner initRunner : listBean) {
-                initRunner.init(null);
+                initRunner.init(args);
             }
         }
     }

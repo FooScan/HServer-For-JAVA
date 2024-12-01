@@ -6,14 +6,37 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.cookie.Cookie;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author hxm
  */
 public interface HttpRequest {
+
+    /**
+     * 最请求设计一个存储器,写
+     * @param key
+     * @param value
+     */
+    void setAttribute(String key, Object value);
+
+    /**
+     * 请求设计一个存储器 读
+     * @param key
+     * @return
+     */
+    Object getAttribute(String key);
+
+
+    /**
+     * 请求设计一个存储器 删
+     * @param key
+     */
+    void removeAttribute(String key);
 
     /**
      * 获取请求ID
@@ -35,13 +58,6 @@ public interface HttpRequest {
      * @return
      */
     String getNettyUri();
-
-    /**
-     * 获取Netty的request
-     *
-     * @return
-     */
-    FullHttpRequest getNettyRequest();
 
     /**
      * 请求方法类型
@@ -162,16 +178,5 @@ public interface HttpRequest {
     long getCreateTime();
 
 
-    /**
-     * 代理中会使用
-     * 出站outboundChannel
-     * @return
-     */
-    Channel getOutboundChannel();
-
-    /**
-     * 设置出站
-     * @param channel
-     */
-    void setOutboundChannel(Channel channel);
+    Set<Cookie> getCookies();
 }

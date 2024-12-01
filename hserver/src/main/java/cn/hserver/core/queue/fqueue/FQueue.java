@@ -1,27 +1,45 @@
 package cn.hserver.core.queue.fqueue;
 
 
+import cn.hserver.core.queue.QueueData;
+import cn.hserver.core.queue.QueueDispatcher;
+import cn.hserver.core.queue.QueueHandleInfo;
 import cn.hserver.core.queue.fqueue.exception.FileFormatException;
+import cn.hserver.core.server.util.NamedThreadFactory;
+import cn.hserver.core.server.util.SerializationUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.AbstractQueue;
 import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 基于文件系统的持久化队列
- *
  */
+
 public class FQueue extends AbstractQueue<byte[]> implements Serializable {
+
+    private static final Logger log = LoggerFactory.getLogger(FQueue.class);
+
+
     private static final long serialVersionUID = -1L;
 
     private FSQueue fsQueue = null;
+    private String queueName = null;
     private Lock lock = new ReentrantReadWriteLock().writeLock();
 
-    public FQueue(String path) throws IOException, FileFormatException {
+    private ExecutorService executorService;
+
+    public FQueue(String path, String queueName) throws IOException, FileFormatException {
+        this.queueName = queueName;
         fsQueue = new FSQueue(path);
     }
 
@@ -67,6 +85,9 @@ public class FQueue extends AbstractQueue<byte[]> implements Serializable {
         try {
             lock.lock();
             fsQueue.add(e);
+            synchronized (this) {
+                this.notifyAll();
+            }
             return true;
         } catch (IOException ex) {
             throw new RuntimeException(ex);
@@ -127,6 +148,67 @@ public class FQueue extends AbstractQueue<byte[]> implements Serializable {
     public void close() throws IOException, FileFormatException {
         if (fsQueue != null) {
             fsQueue.close();
+            fsQueue = null;
+        }
+        stopHandler();
+    }
+
+    public void stopHandler() {
+        if (executorService != null&&!executorService.isShutdown()) {
+            List<Runnable> runnables = executorService.shutdownNow();
+            runnables.forEach(Runnable::run);
+            executorService = null;
+        }
+    }
+
+    public void restartHandler() {
+        if (executorService == null || executorService.isShutdown()) {
+            start();
+        }
+    }
+
+    public void start() {
+        QueueHandleInfo queueHandleInfo = QueueDispatcher.getQueueHandleInfo(queueName);
+        if (queueHandleInfo == null) {
+            return;
+        }
+        int threadSize = queueHandleInfo.getThreadSize();
+        executorService = Executors.newFixedThreadPool(threadSize, new NamedThreadFactory(queueName + "-queue-handler"));
+        for (int i = 0; i < threadSize; i++) {
+            executorService.submit(() -> {
+                while (fsQueue != null && executorService != null && !executorService.isShutdown()) {
+                    try {
+                        if (threadSize == 1) {
+                            byte[] peek = peek();
+                            if (peek != null) {
+                                QueueData deserialize = SerializationUtil.deserialize(peek, QueueData.class);
+                                queueHandleInfo.getQueueEventHandler().invoke(deserialize);
+                                poll();
+                            } else {
+                                synchronized (FQueue.this) {
+                                    FQueue.this.wait();
+                                }
+                            }
+                        } else {
+                            byte[] poll = poll();
+                            if (poll != null) {
+                                QueueData deserialize = SerializationUtil.deserialize(poll, QueueData.class);
+                                queueHandleInfo.getQueueEventHandler().invoke(deserialize);
+                            } else {
+                                synchronized (FQueue.this) {
+                                    FQueue.this.wait();
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (e instanceof InterruptedException) {
+                            return;
+                        }
+                        log.error(e.getMessage(), e);
+                        return;
+                    }
+                }
+            });
         }
     }
 }

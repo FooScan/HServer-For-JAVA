@@ -1,12 +1,17 @@
 package cn.hserver.core.server;
 
+import cn.hserver.core.interfaces.LogAdapter;
 import cn.hserver.core.interfaces.ProtocolDispatcherAdapter;
+import cn.hserver.core.log.HServerLogAsyncAppender;
 import cn.hserver.core.server.context.ConstConfig;
+import cn.hserver.core.server.context.IoMultiplexer;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.epoll.EpollServerSocketChannel;
+import io.netty.channel.kqueue.KQueueServerSocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.incubator.channel.uring.IOUringServerSocketChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import cn.hserver.core.interfaces.ServerCloseAdapter;
@@ -42,8 +47,6 @@ public class HServer {
 
     private final Integer[] ports;
 
-    private final String[] args;
-
     private final Map<Channel, String> channels = new HashMap<>();
 
     //UDP
@@ -51,15 +54,13 @@ public class HServer {
 
     private EventLoopGroup humClientBossGroup = null;
     //TCP
-    private EventLoopGroup bossGroup = null;
-    private EventLoopGroup workerGroup = null;
+    private EventLoopGroup group = null;
 
-    public HServer(Integer[] ports, String[] args) {
+    public HServer(Integer[] ports) {
         this.ports=ports;
-        this.args = args;
     }
 
-    public void run(Map<ChannelOption<Object>, Object> tcpOptions) throws Exception {
+    public void run(Map<ChannelOption<Object>, Object> tcpOptions,Map<ChannelOption<Object>, Object> tcpChildOptions) throws Exception {
         if (ConstConfig.HUM_OPEN) {
             //UDP Server
             humServerBossGroup = new NioEventLoopGroup();
@@ -81,7 +82,6 @@ public class HServer {
             HumClient.channel = humClient.bind(0).sync().channel();
             channels.put(HumClient.channel, "UDP Client Port:0");
         }
-
         List<ProtocolDispatcherAdapter> listBean = IocUtil.getListBean(ProtocolDispatcherAdapter.class);
         if (listBean!=null&&!listBean.isEmpty()) {
             //TCP Server
@@ -90,22 +90,18 @@ public class HServer {
             if (tcpOptions!=null){
                 tcpOptions.forEach(bootstrap::option);
             }
-            if (EpollUtil.check()) {
-                bootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
-                bootstrap.childOption(ChannelOption.SO_KEEPALIVE, true);
-                bootstrap.childOption(ChannelOption.TCP_NODELAY, true);
-                bossGroup = EventLoopUtil.getEventLoop(bossPool, "hserver_epoll_boss");
-                workerGroup = EventLoopUtil.getEventLoop(workerPool, "hserver_epoll_worker");
-                bootstrap.group(bossGroup, workerGroup).channel(EpollServerSocketChannel.class);
-                typeName = "Epoll";
-            } else {
-                bootstrap.childOption(ChannelOption.SO_KEEPALIVE, true);
-                bootstrap.childOption(ChannelOption.TCP_NODELAY, true);
-                bossGroup = EventLoopUtil.getEventLoop(bossPool, "hserver_boss");
-                workerGroup = EventLoopUtil.getEventLoop(workerPool, "hserver_worker");
-                bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class);
-                typeName = "Nio";
+            if (tcpChildOptions!=null){
+                tcpChildOptions.forEach(bootstrap::childOption);
             }
+            IoMultiplexer eventLoopType = EventLoopUtil.getEventLoopType();
+            if (eventLoopType!=IoMultiplexer.JDK) {
+                bootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
+            }
+            bootstrap.childOption(ChannelOption.SO_KEEPALIVE, true);
+            bootstrap.childOption(ChannelOption.TCP_NODELAY, true);
+            group = EventLoopUtil.getEventLoop(workerPool, "hserver_grop");
+            bootstrap.group(group).channel(EventLoopUtil.getEventLoopTypeClass());
+            typeName = eventLoopType.name();
             bootstrap.option(ChannelOption.SO_BACKLOG, backLog);
             bootstrap.childHandler(new ServerInitializer());
             StringBuilder portStr = new StringBuilder();
@@ -120,7 +116,6 @@ public class HServer {
         }
         log.info("HServer 启动完成");
         shutdownHook();
-        initOk();
     }
 
     private void shutdownHook() {
@@ -132,7 +127,7 @@ public class HServer {
                 k.closeFuture().sync();
                 log.info("channel关闭,描述信息：{}", v);
             } catch (InterruptedException e) {
-                log.error(ExceptionUtil.getMessage(e));
+                log.error(e.getMessage(),e);
             }
         }).start());
 
@@ -151,28 +146,14 @@ public class HServer {
             if (this.humServerBossGroup != null) {
                 this.humServerBossGroup.shutdownGracefully();
             }
-            if (this.bossGroup != null) {
-                this.bossGroup.shutdownGracefully();
-            }
-            if (this.workerGroup != null) {
-                this.workerGroup.shutdownGracefully();
+            if (this.group != null) {
+                this.group.shutdownGracefully();
             }
             log.info("服务关闭完成");
         });
         Runtime.getRuntime().addShutdownHook(shutdown);
     }
 
-    private void initOk() {
-        //初始化完成可以放开任务了
-        TaskManager.IS_OK = true;
-        QueueDispatcher.startTaskThread();
-        List<InitRunner> listBean = IocUtil.getListBean(InitRunner.class);
-        if (listBean != null) {
-            for (InitRunner initRunner : listBean) {
-                initRunner.init(args);
-            }
-        }
-    }
 
     private String getHello(String typeName, String port) {
         InputStream banner = HServer.class.getResourceAsStream("/banner.txt");

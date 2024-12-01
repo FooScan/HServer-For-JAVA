@@ -1,5 +1,5 @@
 <p align="center">
-<a href="https://doc.hserver.top">
+<a href="http://docs.hserver.cn">
 <img src="https://gitee.com/HServer/HServer/raw/master/doc/icon.png" width="500" />
 </a>
 </p>
@@ -8,7 +8,7 @@
         <img src="https://img.shields.io/badge/Build-Java8-red.svg?style=flat" />
     </a>
     <a >
-        <img src="https://img.shields.io/badge/Netty-4.1.77.Final-blue.svg" alt="flat">
+        <img src="https://img.shields.io/badge/Netty-4.1.112.Final-blue.svg" alt="flat">
     </a>
     <a >
         <img src="https://img.shields.io/badge/Licence-Apache2.0-green.svg?style=flat" />
@@ -27,23 +27,23 @@ HServer是一个基于Netty开发的一个功能强大，资源丰富，开发�
 
 ### 最新央仓库统一版本
 
-| 资源名 | 版本号 |
-| :----:| :----: |
-| HServer版本 | 3.1.M3  |
+| 资源名 |  版本号   |
+| :----:|:------:|
+| HServer版本 | 3.6.M3 |
 
 ### 资源菜单
 
-|             资源名              | 地址 |
-|:----------------------------:| :----: |
-|             教程文档             | [点我](https://doc.hserver.top)  |
-|             压测文档             | [点我](doc/PM.md) |
-|          Redis使用案例           | [点我](https://gitee.com/HServer/hserver-for-java-redis) |
+|             资源名              |                            地址                             |
+|:----------------------------:|:---------------------------------------------------------:|
+|             教程文档             |               [点我](http://docs.hserver.cn)                |
+|             压测文档             |                      [点我](doc/PM.md)                      |
+|          Redis使用案例           |  [点我](https://gitee.com/HServer/hserver-for-java-redis)   |
 |     MYSQL-BeetlSQL 使用案例      | [点我](https://gitee.com/HServer/hserver-for-java-beetlsql) |
-|    MYSQL-MybatisPlus 使用案例    | [点我](https://gitee.com/HServer/hserver-system) |
-|        MYSQL-NEO 使用案例        |  [点我](https://gitee.com/HServer/hserver-for-java-mysql) |
-|   redis(redisson) 操作 使用案例    |  [点我](https://gitee.com/HServer/hserver-for-java-redis) |
-|        MongoDb操作 使用案例        |  [点我](https://gitee.com/HServer/hserver-for-java-mongodb) |
-|         HServer版本查询          | [点我](https://repo1.maven.org/maven2/cn/hserver/) |
+|    MYSQL-MybatisPlus 使用案例    |      [点我](https://gitee.com/HServer/hserver-system)       |
+|        MYSQL-NEO 使用案例        |  [点我](https://gitee.com/HServer/hserver-for-java-mysql)   |
+|   redis(redisson) 操作 使用案例    |  [点我](https://gitee.com/HServer/hserver-for-java-redis)   |
+|        MongoDb操作 使用案例        | [点我](https://gitee.com/HServer/hserver-for-java-mongodb)  |
+|         HServer版本查询          |     [点我](https://repo1.maven.org/maven2/cn/hserver/)      |
 
 ### 特点
 

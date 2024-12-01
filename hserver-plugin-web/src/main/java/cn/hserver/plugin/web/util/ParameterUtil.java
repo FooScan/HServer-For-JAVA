@@ -20,6 +20,8 @@ import java.lang.reflect.*;
 import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -112,6 +114,7 @@ public class ParameterUtil {
         try {
             Class<?> clazz = method.getDeclaringClass();
             ClassPool pool = ClassPool.getDefault();
+            pool.appendClassPath(new LoaderClassPath(Thread.currentThread().getContextClassLoader()));
             CtClass clz = pool.get(clazz.getName());
             clz.freeze();
             clz.defrost();
@@ -128,14 +131,18 @@ public class ParameterUtil {
                     .getAttribute(LocalVariableAttribute.tag);
             int pos = Modifier.isStatic(cm.getModifiers()) ? 0 : 1;
             String[] paramNames = new String[cm.getParameterTypes().length];
+            Map<Integer,String > kvMap = new HashMap<>();
             for (int i = 0; i < attr.tableLength(); i++) {
-                if (attr.index(i) >= pos && attr.index(i) < paramNames.length + pos) {
-                    paramNames[attr.index(i) - pos] = attr.variableName(i);
-                }
+                kvMap.put(attr.index(i),attr.variableName(i));
+            }
+            List<Map.Entry<Integer, String>> entryList = new ArrayList<>(kvMap.entrySet());
+            entryList.sort(Map.Entry.comparingByKey());
+            for (int i = 0; i < paramNames.length; i++) {
+                paramNames[i]=entryList.get(pos+i).getValue();
             }
             return paramNames;
-        } catch (NotFoundException e) {
-            log.error(ExceptionUtil.getMessage(e));
+        } catch (Exception e) {
+            log.error(e.getMessage(),e);
             return new String[]{};
         }
     }

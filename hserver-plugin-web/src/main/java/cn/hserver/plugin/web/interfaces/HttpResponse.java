@@ -1,8 +1,7 @@
 package cn.hserver.plugin.web.interfaces;
 
-import cn.hserver.plugin.web.context.Cookie;
-import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.cookie.Cookie;
 
 import java.io.File;
 import java.io.InputStream;
@@ -34,10 +33,16 @@ public interface HttpResponse {
      *
      * @param file
      * @param progressStatus
-     * @param ctx
      * @throws Exception
      */
-    void setDownloadBigFile(File file, ProgressStatus progressStatus, ChannelHandlerContext ctx) throws Exception;
+    void setDownloadBigFile(File file, ProgressStatus progressStatus) throws Exception;
+
+    /**
+     * 下载大文件
+     * @param file
+     * @throws Exception
+     */
+    void setDownloadBigFile(File file) throws Exception;
 
     /**
      * 流的下载文件
@@ -128,6 +133,6 @@ public interface HttpResponse {
      *
      * @param p
      */
-    void isProxy(boolean p);
+    void setUseCtx(boolean p);
 
 }

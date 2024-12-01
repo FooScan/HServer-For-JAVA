@@ -8,12 +8,11 @@ import io.netty.channel.ChannelHandlerContext;
 
 import java.net.SocketAddress;
 
-@Bean
 public class BusinessHttp4 implements Business<Http4Data,Object>{
 
     @Override
     public SocketAddress getProxyHost(ChannelHandlerContext ctx, Http4Data http4Data, SocketAddress sourceSocketAddress) {
-        return null;
+        throw new RuntimeException("请配置需要代理的服务器");
     }
 
     @Override
@@ -28,11 +27,6 @@ public class BusinessHttp4 implements Business<Http4Data,Object>{
 
     @Override
     public void close(Channel channel) {
-    }
-
-    @Override
-    public boolean connectController(ChannelHandlerContext ctx,boolean connectResult,int connectNum, Throwable error) {
-        return false;
     }
 
     @Override

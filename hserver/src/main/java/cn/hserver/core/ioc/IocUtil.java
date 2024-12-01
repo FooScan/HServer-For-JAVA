@@ -36,6 +36,13 @@ public class IocUtil {
         return IOC.getBean(type);
     }
 
+    public static <T> T getSupperBean(Class<T> type) {
+        return IOC.getSupperBean(type);
+    }
+    public static <T> List<T> getSupperBeanList(Class<T> type) {
+        return IOC.getSupperBeanList(type);
+    }
+
     public static Object getBean(String beanName) {
         return IOC.getBean(beanName);
     }
